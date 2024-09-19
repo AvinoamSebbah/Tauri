@@ -1,0 +1,115 @@
+image: node:lts-alpine
+
+clone:
+  depth: full # SonarCloud scanner needs the full history to assign issues properly
+
+definitions:
+  services:
+    docker:
+      memory: 5120
+
+test: &test
+  step:
+    name: Lint the hell
+    size: 2x
+    script:
+      - yarn
+      - node_modules/.bin/eslint --ext .ts,.js,.vue --ignore-path .gitignore src
+      - pipe: sonarsource/sonarcloud-scan:2.0.0
+      - pipe: sonarsource/sonarcloud-quality-gate:0.1.6
+    runs-on:
+      - 'self.hosted'
+      - 'linux'
+    caches:
+      - node
+
+deploy-dev: &deploy-dev
+  step:
+    caches:
+      - node
+    name: Deploy to Development
+    deployment: development
+    size: 2x
+    script:
+      - yarn
+      - yarn build-only --mode development
+      - pipe: atlassian/firebase-deploy:3.1.1
+        variables:
+          KEY_FILE: $FIREBASE_KEY_FILE_DEV
+          PROJECT_ID: beehive-devs
+    runs-on:
+      - 'self.hosted'
+      - 'linux'
+
+deploy-staging: &deploy-staging
+  step:
+    caches:
+      - node
+    name: Deploy to Staging
+    deployment: staging
+    size: 2x
+    script:
+      - yarn
+      - yarn build-only --mode staging
+      - pipe: atlassian/firebase-deploy:3.1.1
+        variables:
+          KEY_FILE: $FIREBASE_KEY_FILE_STAGING
+          PROJECT_ID: beehive-staging-40c75
+    runs-on:
+      - 'self.hosted'
+      - 'linux'
+
+deploy-production: &deploy-production
+  step:
+    caches:
+      - node
+    name: Deploy to Production
+    deployment: production
+    size: 2x
+    script:
+      - yarn
+      - yarn build-only --mode production
+      - pipe: atlassian/firebase-deploy:3.1.1
+        variables:
+          KEY_FILE: $FIREBASE_KEY_FILE_PROD
+          PROJECT_ID: $FIREBASE_PROJECT_PROD
+    runs-on:
+      - 'self.hosted'
+      - 'linux'
+
+release: &release
+  step:
+    caches:
+      - node
+    name: Release New Version
+    size: 2x
+    script:
+      - apk update && apk upgrade && apk add --no-cache git
+      - BRANCH=$(git rev-parse --abbrev-ref HEAD)
+      - if [[ $BRANCH != master ]]; then exit 1; fi
+      - yarn global add replace
+      - yarn
+      - yarn release
+      - git push --follow-tags origin master
+    runs-on:
+      - 'self.hosted'
+      - 'linux'
+
+pipelines:
+  branches:
+    master:
+      - <<: *test
+      - <<: *deploy-dev
+      - <<: *deploy-staging
+  pull-requests:
+    '**':
+      - <<: *test
+      - <<: *deploy-dev
+  tags:
+    '**':
+      - <<: *deploy-production
+  custom:
+    release:
+      - <<: *release
+    report:
+      - <<: *test
