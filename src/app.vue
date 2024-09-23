@@ -2,18 +2,29 @@
 import { ref, onMounted } from 'vue';
 import { invoke } from '@tauri-apps/api/tauri';
 
-// Refs pour les données utilisateur et la liste des utilisateurs
-const user = ref<{ username: string, sid: string } | null>(null);
-const users = ref<Array<{ username: string, sid: string }>>([]);
+// Refs for user data and the list of users
+const user = ref<{ first_name: string,last_name: string, id: string, username: string } | null>(null);
+const users = ref<Array<{ username: string, id: string }>>([]);
+const fetchError = ref<boolean>(false); // New ref to handle fetching errors
+
+const registerToWaitingList = async () => {
+  try {
+    await invoke('register_to_waiting_list');
+    alert('Registration request sent!');
+  } catch (error) {
+    console.error('Error registering to the waiting list:', error);
+  }
+};
 
 onMounted(async () => {
   try {
     user.value = await invoke('get_current_user');
+    users.value = await invoke('get_users_waiting_list');
+    console.log('Users:', users.value);
     console.log('User:', user.value);
-    
-    users.value = await invoke('get_users_list');
   } catch (error) {
     console.error('Error fetching user data:', error);
+    fetchError.value = true; // Trigger the error if fetching fails
   }
 });
 </script>
@@ -26,17 +37,24 @@ onMounted(async () => {
         <div class="text-center my-5">
           <v-img src="/src/assets/tobleron.png" max-width="150" class="mx-auto"></v-img>
         </div>
-        
-        <!-- Message de bienvenue -->
-        <v-card class="mb-5 pa-5 text-center">
-          <h1>Welcome, {{ user?.username || 'Utilisateur' }} !</h1>
-          <p>Your SID : <strong>{{ user?.sid || 'Inconnu' }}</strong></p>
-          <p>Welcome to Norelbot</p>
-        </v-card>
 
-        <!-- Liste des utilisateurs -->
+        <!-- Check for fetching error -->
+        <v-card class="mb-5 pa-5 text-center">
+          <template v-if="fetchError">
+            <h2>Welcome new User</h2>
+            <p>Please submit a registration request.</p>
+            <v-btn color="primary" @click="registerToWaitingList" class="mt-3">
+              Register to waiting list
+            </v-btn>
+          </template>
+          <template v-else>
+            <h1>Welcome, {{ user?.first_name || user?.username || 'User' }}!</h1>
+            <p>Your ID: <strong>{{ user?.id || 'Unknown' }}</strong></p>
+            <p>Welcome to Norelbot</p>
+          </template>
+        </v-card>
         <v-card class="pa-5">
-          <h2 class="mb-4">Users list :</h2>
+          <h2 class="mb-4">Users waiting list :</h2>
           <v-list>
             <v-list-item-group>
               <v-list-item
@@ -46,13 +64,12 @@ onMounted(async () => {
               >
                 <v-list-item-content>
                   <v-list-item-title>{{ u.username }}</v-list-item-title>
-                  <v-list-item-subtitle>SID: {{ u.sid }}</v-list-item-subtitle>
+                  <v-list-item-subtitle>ID: {{ u.id }}</v-list-item-subtitle>
                 </v-list-item-content>
               </v-list-item>
             </v-list-item-group>
           </v-list>
         </v-card>
-
       </v-container>
     </v-main>
   </v-app>
