@@ -4,8 +4,8 @@ import { invoke } from '@tauri-apps/api/tauri';
 
 // Refs for user data and the list of users
 const user = ref<{ first_name: string,last_name: string, id: string, username: string } | null>(null);
-const users = ref<Array<{ username: string, id: string }>>([]);
 const fetchError = ref<boolean>(false); // New ref to handle fetching errors
+const usersList = ref<{ first_name: string, last_name: string, id: string, username: string }[]>([]); // List of users
 
 const registerToWaitingList = async () => {
   try {
@@ -16,14 +16,25 @@ const registerToWaitingList = async () => {
   }
 };
 
+const validateUser = async (id: string) => {
+  try {
+    await invoke('validate_user', { id });
+    alert(`User ${id} has been validated!`);
+  } catch (error) {
+    console.error(`Error validating user ${id}:`, error);
+  }
+};
+
 onMounted(async () => {
   try {
+    // Fetch the current user
     user.value = await invoke('get_current_user');
-    users.value = await invoke('get_users_waiting_list');
-    console.log('Users:', users.value);
     console.log('User:', user.value);
+
+    // Fetch the list of users (if applicable)
+    usersList.value = await invoke('get_users_waiting_list');
   } catch (error) {
-    console.error('Error fetching user data:', error);
+    console.error('Error fetching user data or user list:', error);
     fetchError.value = true; // Trigger the error if fetching fails
   }
 });
@@ -41,34 +52,40 @@ onMounted(async () => {
         <!-- Check for fetching error -->
         <v-card class="mb-5 pa-5 text-center">
           <template v-if="fetchError">
-            <h2>Welcome new User</h2>
+            <h2>Error fetching data</h2>
             <p>Please submit a registration request.</p>
-            <v-btn color="primary" @click="registerToWaitingList" class="mt-3">
+            <v-btn color="primary" @click="registerToWaitingList">
               Register to waiting list
             </v-btn>
           </template>
           <template v-else>
+            <!-- Welcome message -->
             <h1>Welcome, {{ user?.first_name || user?.username || 'User' }}!</h1>
             <p>Your ID: <strong>{{ user?.id || 'Unknown' }}</strong></p>
             <p>Welcome to Norelbot</p>
+            
+            <!-- List of users with validate button -->
+            <v-list>
+              <v-list-item-group>
+                <v-list-item v-for="(userItem, index) in usersList" :key="index">
+                  <v-list-item-content>
+                    <v-list-item-title>
+                      {{ userItem.first_name }} {{ userItem.last_name }} ({{ userItem.username }})
+                    </v-list-item-title>
+                    <v-list-item-subtitle>
+                      ID: {{ userItem.id }}
+                    </v-list-item-subtitle>
+                  </v-list-item-content>
+                  <!-- Validate button next to each user -->
+                  <v-list-item-action>
+                    <v-btn color="success" @click="validateUser(userItem.id)">
+                      Validate
+                    </v-btn>
+                  </v-list-item-action>
+                </v-list-item>
+              </v-list-item-group>
+            </v-list>
           </template>
-        </v-card>
-        <v-card class="pa-5">
-          <h2 class="mb-4">Users waiting list :</h2>
-          <v-list>
-            <v-list-item-group>
-              <v-list-item
-                v-for="(u, index) in users"
-                :key="index"
-                class="mb-2"
-              >
-                <v-list-item-content>
-                  <v-list-item-title>{{ u.username }}</v-list-item-title>
-                  <v-list-item-subtitle>ID: {{ u.id }}</v-list-item-subtitle>
-                </v-list-item-content>
-              </v-list-item>
-            </v-list-item-group>
-          </v-list>
         </v-card>
       </v-container>
     </v-main>

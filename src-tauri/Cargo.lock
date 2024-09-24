@@ -71,6 +71,7 @@ version = "0.1.0"
 dependencies = [
  "dirs",
  "grob",
+ "lazy_static",
  "rusqlite",
  "serde",
  "serde_json",

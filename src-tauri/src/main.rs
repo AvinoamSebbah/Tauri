@@ -1,34 +1,40 @@
 #![cfg_attr(
     all(not(debug_assertions), target_os = "windows"),
     windows_subsystem = "windows"
-  )]
-  
+)]
+
+use grob::{winapi_small_binary, RvIsError};
+use lazy_static::lazy_static;
 use rusqlite::{params, Connection, Result};
+use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::ffi::OsString;
-use std::os::windows::ffi::OsStringExt;
-use std::slice::from_raw_parts;
-use uuid::Uuid;
-use grob::{RvIsError, winapi_small_binary};
-use windows::core::{PCWSTR, PWSTR};
-use windows::Win32::Foundation::{FALSE, HANDLE, HLOCAL, PSID};
-use windows::Win32::Globalization::lstrlenW;
-use windows::Win32::Security::{GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER};
-use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
-use windows::Win32::System::Memory::LocalFree;
-use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
-use serde::{Deserialize, Serialize};
+use std::fs;
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
+use std::os::windows::ffi::OsStringExt;
+use std::path::Path;
 use std::ptr::null_mut;
-use windows::Win32::Foundation::BOOL;
-use windows::Win32::UI::Shell::IsUserAnAdmin;
+use std::slice::from_raw_parts;
+use std::sync::Mutex;
+use uuid::Uuid;
+use winapi::um::dpapi::{CryptProtectData, CryptUnprotectData};
 use winapi::um::wincrypt::DATA_BLOB;
-use winapi::um::dpapi::{CryptUnprotectData,CryptProtectData};
-use std::fs;
+use windows::core::{PCWSTR, PWSTR};
+use windows::Win32::Foundation::BOOL;
+use windows::Win32::Foundation::{FALSE, HANDLE, HLOCAL, PSID};
+use windows::Win32::Globalization::lstrlenW;
+use windows::Win32::Security::Authorization::ConvertSidToStringSidW;
+use windows::Win32::Security::{GetTokenInformation, TokenUser, TOKEN_QUERY, TOKEN_USER};
+use windows::Win32::System::Memory::LocalFree;
+use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+use windows::Win32::UI::Shell::IsUserAnAdmin;
 
 const JSON_PATH: &str = "C:\\tobleron\\auth.json";
 const DB_PATH: &str = "C:\\tobleron\\Tobleron.db";
+lazy_static! {
+    static ref CURRENT_USER: Mutex<Option<User>> = Mutex::new(None);
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct UserInfo {
@@ -39,24 +45,24 @@ struct UserInfo {
     valid: bool,
 }
 
-#[derive(serde::Serialize)]
-  struct User {
-      username: String,
-      id: String,
-      first_name: String,
+#[derive(serde::Serialize, Clone)]
+struct User {
+    username: String,
+    id: String,
+    first_name: String,
     last_name: String,
- }
+}
 #[derive(Serialize)]
 struct UserWaitingList {
     username: String,
-    id: String
+    id: String,
 }
 
- struct LocalHeapString {
+struct LocalHeapString {
     inner: PWSTR,
 }
 
-impl LocalHeapString {  
+impl LocalHeapString {
     fn as_mut_ptr(&mut self) -> &mut PWSTR {
         &mut self.inner
     }
@@ -127,7 +133,10 @@ fn protect_data(data: &[u8]) -> Vec<u8> {
 
     if result != 0 {
         let encrypted_data = unsafe {
-            std::slice::from_raw_parts(encrypted_blob.pbData as *const u8, encrypted_blob.cbData as usize)
+            std::slice::from_raw_parts(
+                encrypted_blob.pbData as *const u8,
+                encrypted_blob.cbData as usize,
+            )
         };
         encrypted_data.to_vec()
     } else {
@@ -159,7 +168,10 @@ fn unprotect_data(encrypted_data: &[u8]) -> Vec<u8> {
 
     if result != 0 {
         let decrypted_data = unsafe {
-            std::slice::from_raw_parts(decrypted_blob.pbData as *const u8, decrypted_blob.cbData as usize)
+            std::slice::from_raw_parts(
+                decrypted_blob.pbData as *const u8,
+                decrypted_blob.cbData as usize,
+            )
         };
         decrypted_data.to_vec()
     } else {
@@ -169,7 +181,7 @@ fn unprotect_data(encrypted_data: &[u8]) -> Vec<u8> {
 
 fn read_json(json_path: &str) -> Vec<UserInfo> {
     if !std::path::Path::new(json_path).exists() {
-        return Vec::new(); // Retourne une liste vide si le fichier n'existe pas
+        return Vec::new();
     }
 
     let mut file = OpenOptions::new()
@@ -183,27 +195,31 @@ fn read_json(json_path: &str) -> Vec<UserInfo> {
 
     let decrypted_data = unprotect_data(&encrypted_data);
 
-    // Essaye de désérialiser comme un tableau
     let users: Result<Vec<UserInfo>, _> = serde_json::from_slice(&decrypted_data);
-    
+
     match users {
         Ok(users) => users,
         Err(_) => {
-            // Si la désérialisation échoue, essaie de traiter comme un objet
             let single_user: UserInfo = serde_json::from_slice(&decrypted_data)
                 .expect("Erreur lors de la désérialisation du JSON");
-            vec![single_user] // Retourne un vecteur contenant l'utilisateur
+            vec![single_user]
         }
     }
 }
 
 fn create_or_update_json(json_path: &str, user_info: &UserInfo) -> std::io::Result<()> {
-    let json_data = serde_json::to_string(user_info).expect("Erreur lors de la sérialisation en JSON");
+    let mut users: Vec<UserInfo> = read_json(json_path);
+    if let Some(existing_user) = users.iter_mut().find(|u| u.sid == user_info.sid) {
+        *existing_user = user_info.clone();
+    } else {
+        users.push(user_info.clone());
+    }
+    let json_data = serde_json::to_string(&users).expect("Erreur lors de la sérialisation en JSON");
     let encrypted_data = protect_data(json_data.as_bytes());
-
     let mut file = OpenOptions::new()
         .write(true)
         .create(true)
+        .truncate(true) // Effacer l'ancien contenu
         .open(json_path)?;
 
     file.write_all(&encrypted_data)?;
@@ -211,62 +227,15 @@ fn create_or_update_json(json_path: &str, user_info: &UserInfo) -> std::io::Resu
     Ok(())
 }
 
-fn initialize_db() -> Connection {
-    let conn = Connection::open(DB_PATH).expect("Failed to open DB");
-    conn.execute(
-      "CREATE TABLE IF NOT EXISTS User (
-        id TEXT PRIMARY KEY,
-        username TEXT NOT NULL,
-        first_name TEXT NOT NULL,
-        last_name TEXT NOT NULL
-      )",
-      [],
-    ).expect("Failed to create User table");
-  
-    conn.execute(
-      "CREATE TABLE IF NOT EXISTS Machine (
-        id INTEGER PRIMARY KEY,
-        machine_name TEXT NOT NULL,
-        user_id INTEGER,
-        FOREIGN KEY(user_id) REFERENCES User(id)
-      )",
-      [],
-    ).expect("Failed to create Machine table");
-
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS Measure (
-          id INTEGER PRIMARY KEY,
-          user_id INTEGER,
-          machine_id INTEGER,
-          measure_date TEXT NOT NULL,
-          temperature REAL NOT NULL,
-          FOREIGN KEY(user_id) REFERENCES User(id),
-          FOREIGN KEY(machine_id) REFERENCES Machine(id)
-        )",
-        [],
-      ).expect("Failed to create Measure table");
-
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS WaitingList (
-          id INTEGER PRIMARY KEY,
-          user_id TEXT NOT NULL,
-          username TEXT NOT NULL
-        )",
-        [],
-      ).expect("Failed to create WaitingList table");
-  
-    conn
-  }
- 
 fn get_user_sid() -> Result<String, Box<dyn Error>> {
     let h = unsafe { GetCurrentProcess() };
     let mut h_token: HANDLE = Default::default();
     if unsafe { OpenProcessToken(h, TOKEN_QUERY, &mut h_token) } == BOOL(0) {
-      return Err(Box::new(std::io::Error::last_os_error()));
+        return Err(Box::new(std::io::Error::last_os_error()));
     }
     let sid = get_user_sid_from_token(h_token)?;
     Ok(sid)
-  }
+}
 
 fn get_user_sid_from_token(token: HANDLE) -> Result<String, std::io::Error> {
     winapi_small_binary(
@@ -277,7 +246,7 @@ fn get_user_sid_from_token(token: HANDLE) -> Result<String, std::io::Error> {
                     TokenUser,
                     Some(argument.pointer()),
                     *argument.size(),
-                argument.size(),
+                    argument.size(),
                 )
             };
             RvIsError::new(rv)
@@ -285,13 +254,14 @@ fn get_user_sid_from_token(token: HANDLE) -> Result<String, std::io::Error> {
         |frozen_buffer| {
             if let Some(fbp) = frozen_buffer.pointer() {
                 let tup = fbp as *const TOKEN_USER;
-                convert_sid_to_string( unsafe {*tup}.User.Sid)
+                convert_sid_to_string(unsafe { *tup }.User.Sid)
             } else {
                 Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    "something went terribly wrong"))
+                    "something went terribly wrong",
+                ))
             }
-        }
+        },
     )
 }
 
@@ -305,28 +275,11 @@ fn convert_sid_to_string(value: PSID) -> Result<String, std::io::Error> {
 
 #[tauri::command]
 fn get_current_user() -> Result<User, String> {
-    let users = read_json(JSON_PATH);
-    let sid = get_user_sid().expect("Failed to get SID");
-    let actual_user = users.iter().find(|u| u.sid == sid);
-    if actual_user.is_none() {
-        return Err("User not found".to_string().to_string());
+    let current_user = CURRENT_USER.lock().unwrap();
+    if let Some(user) = &*current_user {
+        return Ok(user.clone());
     }
-
-  let conn = Connection::open(DB_PATH).expect("Failed to open DB");
-  
-    let user = conn.query_row(
-        "SELECT username, first_name, last_name, id FROM User WHERE id = ?1",
-        params![actual_user.unwrap().id],
-        |row| {
-            Ok(User {
-                username: row.get(0)?,
-                first_name: row.get(1)?,
-                last_name: row.get(2)?,
-                id: row.get(3)?,
-            })
-        },
-    ).expect("Erreur lors de la récupération de l'utilisateur");
-  Ok(user)
+    return Err("User not found".to_string());
 }
 
 #[tauri::command]
@@ -340,13 +293,13 @@ fn register_to_waiting_list() -> Result<bool, String> {
         conn.execute(
             "INSERT INTO WaitingList (user_id, username) VALUES (?1, ?2)",
             params![user.id, user.username],
-        ).map_err(|e| e.to_string())?;
+        )
+        .map_err(|e| e.to_string())?;
         Ok(true)
     } else {
         Err("User not found".to_string())
     }
 }
-
 
 #[tauri::command]
 fn get_users_waiting_list() -> Result<Vec<UserWaitingList>, String> {
@@ -378,51 +331,147 @@ fn get_users_waiting_list() -> Result<Vec<UserWaitingList>, String> {
     Ok(users)
 }
 
-fn main() {
-    tauri::Builder::default().invoke_handler(tauri::generate_handler![
-        get_current_user,
-        register_to_waiting_list,
-        get_users_waiting_list
-    ])
-      .setup(|_app| {
-        initialize_db();
-        let sid = get_user_sid().expect("Failed to get SID");
+fn set_current_user(user: UserInfo) -> Result<User, String> {
+    let mut current_user = CURRENT_USER.lock().unwrap();
+    let conn = Connection::open(DB_PATH).expect("Failed to open DB");
+    let user_data = conn
+        .query_row(
+            "SELECT username, first_name, last_name, id FROM User WHERE id = ?1",
+            params![user.id],
+            |row| {
+                Ok(User {
+                    username: row.get(0)?,
+                    first_name: row.get(1)?,
+                    last_name: row.get(2)?,
+                    id: row.get(3)?,
+                })
+            },
+        )
+        .expect("Error when getting user data");
 
-        if let Some(parent) = std::path::Path::new(JSON_PATH).parent() {
-            fs::create_dir_all(parent).expect("Erreur lors de la création du dossier");
+    *current_user = Some(user_data.clone());
+
+    Ok(user_data)
+}
+
+fn sync_json_with_db() -> Result<(), Box<dyn std::error::Error>> {
+    let conn = Connection::open(DB_PATH).expect("Failed to open DB");
+    let users: Vec<UserInfo> = read_json(JSON_PATH);
+
+    for user in users.iter() {
+        if user.valid {
+            let mut stmt = conn.prepare("SELECT COUNT(1) FROM User WHERE id = ?1")?;
+            let user_exists: i64 = stmt.query_row([&user.id], |row| row.get(0))?;
+            if user_exists == 0 {
+                conn.execute(
+                    "INSERT INTO User (id, username, first_name, last_name) VALUES (?1, ?2, '', '')",
+                    params![user.id, user.username],
+                )?;
+                println!("User added to database : {:?}", user);
+            }
         }
-    
+    }
+    Ok(())
+}
+
+fn initialize_user() {
+    let sid = get_user_sid().expect("Failed to get SID");
+
+    if let Some(parent) = Path::new(JSON_PATH).parent() {
+        fs::create_dir_all(parent).expect("Error when creating directory");
+    }
+    let mut users = read_json(JSON_PATH);
+    let existing_user = users.iter().find(|u| u.sid == sid);
+    let user: UserInfo;
+
+    if let Some(existing) = existing_user {
+        println!("User already exists: {:?}", existing);
+        user = existing.clone();
+    } else {
         let username = get_current_username();
         let is_admin = is_user_admin();
         let role = if is_admin { "admin" } else { "user" };
         let valid = is_admin;
         let id = Uuid::new_v4().to_string();
-    
-        let user_info = UserInfo {
+
+        user = UserInfo {
             id,
             username,
-            sid,
+            sid: sid.clone(),
             role: role.to_string(),
             valid,
         };
-    
-        let mut users = read_json(JSON_PATH);
-        let existing_user = users.iter().find(|u| u.sid == user_info.sid);
-    
-        if let Some(existing) = existing_user {
-            println!("L'utilisateur existe déjà : {:?}", existing);
-        } else {
-            users.push(user_info.clone());
-            create_or_update_json(JSON_PATH, &user_info).expect("Erreur lors de la création/mise à jour du fichier JSON");
-            println!("Nouveau user ajouté : {:?}", user_info);
-            let conn = Connection::open(DB_PATH).expect("Failed to open DB");
-            conn.execute(
-                "INSERT INTO User (username, id, first_name, last_name) VALUES (?1, ?2, ?3, ?4)",
-                params![user_info.username, user_info.id, "", ""],
-            ).expect("Erreur lors de l'insertion dans la base de données");
-        }
-        Ok(())
-      })
-      .run(tauri::generate_context!())
-      .expect("error while running tauri application");
+        users.push(user.clone());
+        create_or_update_json(JSON_PATH, &user).expect("Error when creating or updating JSON file");
+        println!("New user added: {:?}", user);
+    }
+    sync_json_with_db().expect("Failed to sync JSON with DB");
+    set_current_user(user).expect("Failed to set current user");
+}
+
+fn initialize_db() -> Connection {
+    let conn = Connection::open(DB_PATH).expect("Failed to open DB");
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS User (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL,
+        first_name TEXT NOT NULL,
+        last_name TEXT NOT NULL
+      )",
+        [],
+    )
+    .expect("Failed to create User table");
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS Machine (
+        id INTEGER PRIMARY KEY,
+        machine_name TEXT NOT NULL,
+        user_id INTEGER,
+        FOREIGN KEY(user_id) REFERENCES User(id)
+      )",
+        [],
+    )
+    .expect("Failed to create Machine table");
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS Measure (
+          id INTEGER PRIMARY KEY,
+          user_id INTEGER,
+          machine_id INTEGER,
+          measure_date TEXT NOT NULL,
+          temperature REAL NOT NULL,
+          FOREIGN KEY(user_id) REFERENCES User(id),
+          FOREIGN KEY(machine_id) REFERENCES Machine(id)
+        )",
+        [],
+    )
+    .expect("Failed to create Measure table");
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS WaitingList (
+          id INTEGER PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          username TEXT NOT NULL
+        )",
+        [],
+    )
+    .expect("Failed to create WaitingList table");
+
+    conn
+}
+
+fn main() {
+    tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![
+            get_current_user,
+            register_to_waiting_list,
+            get_users_waiting_list
+        ])
+        .setup(|_app| {
+            initialize_db();
+            initialize_user();
+            Ok(())
+        })
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
 }
