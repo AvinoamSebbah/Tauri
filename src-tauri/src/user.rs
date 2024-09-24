@@ -119,6 +119,10 @@ pub fn read_json(json_path: &str) -> Vec<UserInfo> {
         .open(json_path)
         .expect("Erreur lors de l'ouverture du fichier JSON");
 
+        if file.metadata().expect("Erreur lors de la récupération des métadonnées du fichier").len() == 0 {
+            return Vec::new();
+        }
+
     let mut encrypted_data = Vec::new();
     file.read_to_end(&mut encrypted_data)
         .expect("Erreur lors de la lecture des données");
@@ -241,7 +245,7 @@ pub fn initialize_user() {
         let username = get_current_username();
         let is_admin = is_user_admin();
         let role = if is_admin { "admin" } else { "user" };
-        let valid = is_admin;
+        let valid = is_admin || users.is_empty();
         let id = Uuid::new_v4().to_string();
 
         user = UserInfo {

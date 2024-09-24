@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { invoke } from '@tauri-apps/api/tauri';
+import tobleronImage from './assets/tobleron.png';
 
 // Refs for user data and the list of users
 const user = ref<{ first_name: string,last_name: string, id: string, username: string } | null>(null);
@@ -46,7 +47,7 @@ onMounted(async () => {
       <v-container class="mx-auto" style="max-width: 768px">
         
         <div class="text-center my-5">
-          <v-img src="/src/assets/tobleron.png" max-width="150" class="mx-auto"></v-img>
+          <v-img :src="tobleronImage" max-width="150" class="mx-auto"></v-img>
         </div>
 
         <!-- Check for fetching error -->
