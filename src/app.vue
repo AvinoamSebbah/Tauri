@@ -17,12 +17,12 @@ const registerToWaitingList = async () => {
   }
 };
 
-const validateUser = async (id: string) => {
+const validateUser = async (userId: string) => {
   try {
-    await invoke('validate_user', { id });
-    alert(`User ${id} has been validated!`);
+    await invoke('validate_user', { userId });
+    usersList.value = usersList.value.filter((user) => user.id !== userId);
   } catch (error) {
-    console.error(`Error validating user ${id}:`, error);
+    console.error(`Error validating user ${userId}:`, error);
   }
 };
 

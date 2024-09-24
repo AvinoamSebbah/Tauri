@@ -219,13 +219,16 @@ pub fn sync_json_with_db() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-pub fn set_current_user(user: UserInfo) -> Result<User, String> {
+pub fn set_current_user(user: UserInfo) -> Result<Option<User>, String> {
     let mut current_user = CURRENT_USER.lock().unwrap();
-    let user_data = get_user_by_id(user.id)?;
+    if !user.valid {
+        *current_user = None;
+        return Ok(None);
+    }
 
+    let user_data = get_user_by_id(user.id).map_err(|e| e.to_string())?;
     *current_user = Some(user_data.clone());
-
-    Ok(user_data)
+    Ok(Some(user_data))
 }
 
 pub fn initialize_user() {
@@ -260,5 +263,25 @@ pub fn initialize_user() {
         println!("New user added: {:?}", user);
     }
     sync_json_with_db().expect("Failed to sync JSON with DB");
-    set_current_user(user).expect("Failed to set current user");
+       match set_current_user(user) {
+        Ok(Some(user)) => println!("User set successfully: {:?}", user),
+        Ok(None) => println!("User is not valid, current user set to None"),
+        Err(e) => eprintln!("Failed to set current user: {}", e),
+    }
+}
+
+
+
+#[tauri::command]
+pub fn validate_user(user_id: String) -> Result<(), String> {
+    let mut users = read_json(JSON_PATH);
+    if let Some(user) = users.iter_mut().find(|u| u.id == user_id) {
+        user.valid = true;
+        create_or_update_json(JSON_PATH, user).map_err(|e| e.to_string())?;
+        sync_json_with_db().map_err(|e| e.to_string())?;
+        delete_user_from_waiting_list(user_id).map_err(|e| e.to_string())?;
+        Ok(())
+    } else {
+        Err("User not found".to_string())
+    }
 }

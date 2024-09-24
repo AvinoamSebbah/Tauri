@@ -15,7 +15,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             get_current_user,
             register_to_waiting_list,
-            get_users_waiting_list
+            get_users_waiting_list,
+            validate_user
         ])
         .setup(|_app| {
             initialize_db();

@@ -17,7 +17,7 @@ pub struct UserInfo {
     pub valid: bool,
 }
 
-#[derive(serde::Serialize, Clone)]
+#[derive(serde::Serialize, Clone, Debug)]
 pub struct User {
     pub username: String,
     pub id: String,

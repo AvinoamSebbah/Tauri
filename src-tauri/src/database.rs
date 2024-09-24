@@ -88,6 +88,15 @@ pub fn insert_user(user: &UserInfo) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+pub fn delete_user_from_waiting_list(user_id: String) -> Result<(), Box<dyn std::error::Error>> {
+    let conn = Connection::open(DB_PATH).expect("Failed to open DB");
+    conn.execute(
+        "DELETE FROM WaitingList WHERE user_id = ?1",
+        params![user_id],
+    )?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn get_current_user() -> Result<User, String> {
     let current_user = CURRENT_USER.lock().unwrap();
