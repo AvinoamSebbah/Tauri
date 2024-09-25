@@ -11,9 +11,16 @@
       "forceConsistentCasingInFileNames": true,
       "isolatedModules": true,
       "noEmit": true,
-      "types": ["node"]
+      "types": ["node"],
+      "baseUrl": ".",
+      "paths": {
+      "@/*": ["src/*"]
+    }
     },
-    "include": ["src/**/*", "env.d.ts"],
+    "include": ["src/**/*", "env.d.ts", "src/**/*.ts",
+    "src/**/*.d.ts",
+    "src/**/*.tsx",
+    "src/**/*.vue", "src/**/**/*.vue" ],
     "exclude": ["node_modules"]
   }
   

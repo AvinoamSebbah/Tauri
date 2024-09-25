@@ -1,14 +1,27 @@
 import { createApp } from 'vue';
-import 'tailwindcss/tailwind.css';
+import App from './App.vue';
+import router from './router/index';
 
-import './assets/styles/app.scss';
-import App from './app.vue';
+import Aura from '@primevue/themes/aura';
+import PrimeVue from 'primevue/config';
+import ConfirmationService from 'primevue/confirmationservice';
+import ToastService from 'primevue/toastservice';
+
+import '@/assets/styles.scss';
+import '@/assets/tailwind.css';
+
 const app = createApp(App);
 
-import { vuetify } from './plugins/vuetify';
-app.use(vuetify);
-
-import { unifiedApp } from './plugins/unified/unified-app';
-app.use(unifiedApp);
+app.use(router);
+app.use(PrimeVue, {
+    theme: {
+        preset: Aura,
+        options: {
+            darkModeSelector: '.app-dark'
+        }
+    }
+});
+app.use(ToastService);
+app.use(ConfirmationService);
 
 app.mount('#app');
