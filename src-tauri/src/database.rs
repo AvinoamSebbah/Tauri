@@ -152,3 +152,64 @@ pub fn get_users_waiting_list() -> Result<Vec<UserWaitingList>, String> {
 
     Ok(users)
 }
+
+#[tauri::command]
+pub fn get_table_data() -> Result<Vec<Measure>, String> {
+    let conn = Connection::open(DB_PATH).map_err(|e| e.to_string())?;
+
+    let mut stmt = conn
+        .prepare("SELECT id, user_id, machine_id, measure_date, temperature FROM Measure")
+        .map_err(|e| e.to_string())?;
+
+    let measure_iter = stmt
+        .query_map([], |row| {
+            Ok(Measure {
+                id: row.get(0)?,
+                user_id: row.get(1)?,
+                machine_id: row.get(2)?,
+                measure_date: row.get(3)?,
+                temperature: row.get(4)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut measures = Vec::new();
+    for measure_result in measure_iter {
+        match measure_result {
+            Ok(measure) => measures.push(measure),
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+
+    Ok(measures)
+}
+
+#[tauri::command]
+pub fn add_data_to_table(data: Vec<Measure>) -> Result<bool, String> {
+    let conn = Connection::open(DB_PATH).map_err(|e| e.to_string())?;
+    for measure in data {
+        conn.execute(
+            "INSERT INTO Measure (id, user_id, machine_id, measure_date, temperature)
+             VALUES (
+                CASE WHEN ?1 IS NOT NULL THEN ?1 ELSE (SELECT MAX(id) + 1 FROM Measure) END,
+                ?2, ?3, ?4, ?5
+             )",
+            params![
+                measure.id,
+                measure.user_id,
+                measure.machine_id,
+                measure.measure_date,
+                measure.temperature
+            ],
+        ).map_err(|e| e.to_string())?;
+    }
+
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn clear_measure_table() -> Result<(), String> {
+    let conn = Connection::open(DB_PATH).expect("Failed to open DB");
+    conn.execute("DELETE FROM Measure", []).map_err(|e| e.to_string())?;
+    Ok(())
+}

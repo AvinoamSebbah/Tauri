@@ -16,7 +16,10 @@ fn main() {
             get_current_user,
             register_to_waiting_list,
             get_users_waiting_list,
-            validate_user
+            validate_user,
+            get_table_data,
+            add_data_to_table,
+            clear_measure_table
         ])
         .setup(|_app| {
             initialize_db();

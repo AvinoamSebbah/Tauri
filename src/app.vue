@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { invoke } from '@tauri-apps/api/tauri';
+import csvLoader from './modules/csv/csvLoader.vue';
 import tobleronImage from './assets/tobleron.png';
 
 // Refs for user data and the list of users
@@ -87,6 +88,9 @@ onMounted(async () => {
               </v-list-item-group>
             </v-list>
           </template>
+        </v-card>
+        <v-card class="mb-5 pa-5">
+          <csv-loader></csv-loader>
         </v-card>
       </v-container>
     </v-main>

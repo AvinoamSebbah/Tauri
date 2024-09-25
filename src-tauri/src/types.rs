@@ -25,6 +25,15 @@ pub struct User {
     pub last_name: String,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Measure {
+    pub id: Option<i32>,
+    pub user_id: String,
+    pub machine_id: i32,
+    pub measure_date: String,
+    pub temperature: f64,
+}
+
 #[derive(Serialize)]
 pub struct UserWaitingList {
     pub username: String,
