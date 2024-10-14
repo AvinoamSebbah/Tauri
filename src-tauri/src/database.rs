@@ -6,51 +6,95 @@ pub const DB_PATH: &str = "C:\\tobleron\\Tobleron.db";
 
 pub fn initialize_db() -> Connection {
     let conn = Connection::open(DB_PATH).expect("Failed to open DB");
+
+    // Table Users
     conn.execute(
         "CREATE TABLE IF NOT EXISTS User (
         id TEXT PRIMARY KEY,
         username TEXT NOT NULL,
         first_name TEXT NOT NULL,
-        last_name TEXT NOT NULL
+        last_name TEXT NOT NULL,
+        site CHAR(4)
       )",
         [],
     )
     .expect("Failed to create User table");
 
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS Machine (
-        id INTEGER PRIMARY KEY,
-        machine_name TEXT NOT NULL,
-        user_id INTEGER,
-        FOREIGN KEY(user_id) REFERENCES User(id)
-      )",
-        [],
-    )
-    .expect("Failed to create Machine table");
-
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS Measure (
-          id INTEGER PRIMARY KEY,
-          user_id INTEGER,
-          machine_id INTEGER,
-          measure_date TEXT NOT NULL,
-          temperature REAL NOT NULL,
-          FOREIGN KEY(user_id) REFERENCES User(id),
-          FOREIGN KEY(machine_id) REFERENCES Machine(id)
+     // Table EQMeasuringPoint
+     conn.execute(
+        "CREATE TABLE IF NOT EXISTS EQMeasuringPoint (
+            id INTEGER PRIMARY KEY,
+            measuring_point_id CHAR(12) NOT NULL,
+            description CHAR(40),
+            equipment_id CHAR(18),
+            equipment_description CHAR(40),
+            serial_number CHAR(3),
+            measuring_location CHAR(4),
+            installation_position CHAR(22)
         )",
         [],
-    )
-    .expect("Failed to create Measure table");
+    ).expect("Failed to create EQMeasuringPoint table");
 
+    // Table FLMeasuringPoint
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS WaitingList (
-          id INTEGER PRIMARY KEY,
-          user_id TEXT NOT NULL,
-          username TEXT NOT NULL
+        "CREATE TABLE IF NOT EXISTS FLMeasuringPoint (
+            id INTEGER PRIMARY KEY,
+            measuring_point_id CHAR(12) NOT NULL,
+            description CHAR(40),
+            functional_location_id CHAR(30),
+            functional_location_description CHAR(40),
+            serial_number CHAR(30),
+            measuring_location CHAR(4)
         )",
         [],
-    )
-    .expect("Failed to create WaitingList table");
+    ).expect("Failed to create FLMeasuringPoint table");
+
+
+    // Table MeasuringPointsSPCatalog
+    conn.execute(
+            "CREATE TABLE IF NOT EXISTS MeasuringPointsSPCatalog (
+                id INTEGER PRIMARY KEY,
+                catalog_group_code CHAR(8),
+                catalog CHAR(1),
+                code_v CHAR(4),
+                code_x CHAR(4)
+            )",
+            [],
+        ).expect("Failed to create MeasuringPointsSPCatalog table");
+
+    // Table MeasuringPointsCatalog
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS MeasuringPointsCatalog (
+            id INTEGER PRIMARY KEY,
+            catalog CHAR(1),
+            catalog_group_code CHAR(8),
+            catalog_code CHAR(4),
+            text CHAR(40)
+        )",
+        [],
+    ).expect("Failed to create MeasuringPointsCatalog table");
+
+    // Table DailyInspectionsTypes
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS DailyInspectionsTypes (
+            id INTEGER PRIMARY KEY,
+            inspection_code CHAR(2),
+            description CHAR(30),
+            inspection_location CHAR(30)
+        )",
+        [],
+    ).expect("Failed to create DailyInspectionsTypes table");
+
+     // Table LogicalNavigationHierarchy
+     conn.execute(
+        "CREATE TABLE IF NOT EXISTS LogicalNavigationHierarchy (
+            id INTEGER PRIMARY KEY,
+            position_id CHAR(30) NOT NULL,
+            description CHAR(40),
+            parent_position_id CHAR(30)
+        )",
+        [],
+    ).expect("Failed to create LogicalNavigationHierarchy table");
 
     conn
 }
